@@ -1,4 +1,4 @@
-use egui::{global_dark_light_mode_buttons, Context};
+use egui::{global_dark_light_mode_buttons, Context, Modifiers};
 use std::future::Future;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
@@ -9,6 +9,7 @@ pub struct MonitorApp {
     text_channel: (Sender<String>, Receiver<String>),
     sample_text: String,
     data: Vec<SampleData>,
+    take_screenshot: bool,
 }
 
 impl Default for MonitorApp {
@@ -33,6 +34,7 @@ impl Default for MonitorApp {
             sample_text: "Hier könnte ihre Werbung stehen".into(),
             // dropped_files: vec![],
             data: vec![wave_data, point_data],
+            take_screenshot: false,
         }
     }
 }
@@ -53,6 +55,39 @@ impl eframe::App for MonitorApp {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                // Check for returned screenshot:
+                ui.input(|i| {
+                    for event in &i.raw.events {
+                        if let egui::Event::Screenshot { image, .. } = event {
+                            if self.take_screenshot {
+                                println!("we got a screenshot?!");
+                                // save the screenshot, if we got one
+                                let filename =
+                                    format!("screenshot_{}.png", chrono::offset::Local::now());
+
+                                image::save_buffer(
+                                    filename,
+                                    image.as_raw(),
+                                    image.width() as u32,
+                                    image.height() as u32,
+                                    image::ColorType::Rgba8,
+                                )
+                                .unwrap();
+                                self.take_screenshot = false;
+                            }
+                        }
+                    }
+                });
+                ui.input_mut(|i| {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    // the wasm backend doesn't have the capability to take screenshots
+                    if i.consume_shortcut(&egui::KeyboardShortcut {
+                        modifiers: Modifiers::NONE,
+                        key: egui::Key::F9,
+                    }) {
+                        self.take_screenshot = true;
+                    }
+                });
                 // a simple button opening the dialog
                 if ui.button("Add data from file").clicked() {
                     let sender = self.text_channel.0.clone();
@@ -67,6 +102,15 @@ impl eframe::App for MonitorApp {
                     });
                 }
                 ui.separator();
+
+                #[cfg(not(target_arch = "wasm32"))]
+                // the wasm backend doesn't have the capability to take screenshots
+                {
+                    if ui.button("Screenshot").clicked() {
+                        self.take_screenshot = true;
+                    }
+                    ui.separator();
+                }
                 global_dark_light_mode_buttons(ui);
             });
         });
@@ -91,6 +135,9 @@ impl eframe::App for MonitorApp {
                 },
             );
         });
+        if self.take_screenshot {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
+        }
     }
 }
 
