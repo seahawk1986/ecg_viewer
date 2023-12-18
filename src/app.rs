@@ -1,40 +1,47 @@
 use egui::{global_dark_light_mode_buttons, Context, Modifiers};
-use std::future::Future;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-use crate::sample_data::Channel;
-use crate::SampleData;
+use crate::data_structures::{DrawableChannel, SampleBasedChannel, TimeBasedChannel};
+use crate::{parse_content, ChannelPlotter};
+
+use std::future::Future;
+
+enum AppState {
+    Startup,
+    ImportData,
+    GraphView,
+    LoadingScreen,
+}
 
 pub struct MonitorApp {
     text_channel: (Sender<String>, Receiver<String>),
+    data_channel: (
+        Sender<Vec<SampleBasedChannel>>,
+        Receiver<Vec<SampleBasedChannel>>,
+    ),
+    time_data_channel: (
+        Sender<Vec<TimeBasedChannel>>,
+        Receiver<Vec<TimeBasedChannel>>,
+    ),
     sample_text: String,
-    data: Vec<SampleData>,
+    // data: Vec<SampleData>,
     take_screenshot: bool,
+    app_state: AppState,
+    plotter: ChannelPlotter,
 }
 
 impl Default for MonitorApp {
     fn default() -> Self {
-        let sqw = Channel::square_wave(1000, 1000.0, 100_000, None);
-        let sin = Channel::sin_wave(1000.0, 100_000, None);
-        let wave_data = SampleData::new(
-            "Various Wave forms".to_string(),
-            vec![sqw, sin],
-            1000.0,
-            "mV".to_string(),
-        );
-        let point_data: SampleData = SampleData::new(
-            "Point experiments".to_string(),
-            vec![Channel::dot_every_n(1000, 1000.0, 100_000, None)],
-            1000.0,
-            "RR".to_string(),
-        );
+        let plotter = ChannelPlotter::new("ECG".to_owned(), vec![]);
 
         Self {
             text_channel: channel(),
+            data_channel: channel(),
+            time_data_channel: channel(),
             sample_text: "Hier könnte ihre Werbung stehen".into(),
-            // dropped_files: vec![],
-            data: vec![wave_data, point_data],
             take_screenshot: false,
+            app_state: AppState::Startup,
+            plotter,
         }
     }
 }
@@ -48,11 +55,6 @@ impl MonitorApp {
 
 impl eframe::App for MonitorApp {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        // assign sample text once it comes in
-        if let Ok(f) = self.text_channel.1.try_recv() {
-            self.sample_text = f;
-        }
-
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 // Check for returned screenshot:
@@ -78,8 +80,8 @@ impl eframe::App for MonitorApp {
                         }
                     }
                 });
+                #[cfg(not(target_arch = "wasm32"))]
                 ui.input_mut(|i| {
-                    #[cfg(not(target_arch = "wasm32"))]
                     // the wasm backend doesn't have the capability to take screenshots
                     if i.consume_shortcut(&egui::KeyboardShortcut {
                         modifiers: Modifiers::NONE,
@@ -90,14 +92,22 @@ impl eframe::App for MonitorApp {
                 });
                 // a simple button opening the dialog
                 if ui.button("Add data from file").clicked() {
-                    let sender = self.text_channel.0.clone();
-                    let task = rfd::AsyncFileDialog::new().pick_file();
+                    // let sender = self.text_channel.0.clone();
+                    let sample_data_sender = self.data_channel.0.clone();
+                    let time_data_sender = self.time_data_channel.0.clone();
+                    let task = rfd::AsyncFileDialog::new().pick_files();
+
                     execute(async move {
                         let file = task.await;
-                        if let Some(file) = file {
-                            let text = file.read().await;
-                            let _ = sender.send(String::from_utf8_lossy(&text).to_string());
-                            // TODO: parse file and crate a SampleData Struct from it
+                        if let Some(mut filehandles) = file {
+                            while let Some(filehandle) = filehandles.pop() {
+                                // workaround because we can't have async closures yet
+                                dbg!(&filehandle);
+                                let raw_data = filehandle.read().await;
+                                let data_channels = parse_content(raw_data);
+                                let _ = sample_data_sender.send(data_channels.0);
+                                let _ = time_data_sender.send(data_channels.1);
+                            }
                         }
                     });
                 }
@@ -114,27 +124,53 @@ impl eframe::App for MonitorApp {
                 global_dark_light_mode_buttons(ui);
             });
         });
+        match self.app_state {
+            AppState::Startup => {
+                self.app_state = AppState::ImportData;
+            }
+            AppState::ImportData => {
+                self.app_state = AppState::LoadingScreen;
+            }
+            AppState::LoadingScreen => self.app_state = AppState::GraphView,
+            AppState::GraphView => {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.with_layout(
+                        egui::Layout::top_down_justified(egui::Align::Center),
+                        |ui| {
+                            self.plotter.plot(ui);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.with_layout(
-                egui::Layout::top_down_justified(egui::Align::Center),
-                |ui| {
-                    self.data.iter_mut().for_each(|data|{
-                        data.plot(ui);
-                    });
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
+                                ui.label(
+                                    "Double click graph to reset view.\nHold SHIFT to scroll horizontally.\nHold CTRL to zoom in/out.\nDrag with the right mouse button pressed to select a zoom area",
+                                );
+                            });
 
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
-                        ui.label(
-                            "Double click graph to reset view.\nHold SHIFT to scroll horizontally.\nHold CTRL to zoom in/out.\nDrag with the right mouse button pressed to select a zoom area",
-                        );
-                    });
-
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.label(&self.sample_text);
-                    });
-                },
-            );
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                ui.label(&self.sample_text);
+                            });
+                        },
+                    );
         });
+            }
+        }
+        // assign sample text once it comes in
+        if let Ok(f) = self.text_channel.1.try_recv() {
+            self.sample_text = f;
+        }
+        if let Ok(mut channels) = self.data_channel.1.try_recv() {
+            channels.drain(..).for_each(|c| {
+                self.plotter
+                    .add_channel(Box::new(c) as Box<dyn DrawableChannel>);
+            });
+        }
+        if let Ok(mut channels) = self.time_data_channel.1.try_recv() {
+            channels.drain(..).for_each(|c| {
+                self.plotter
+                    .add_channel(Box::new(c) as Box<dyn DrawableChannel>);
+            });
+        }
+
+        // request a screenshot if the flag is set
         if self.take_screenshot {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
         }
@@ -144,6 +180,7 @@ impl eframe::App for MonitorApp {
 #[cfg(not(target_arch = "wasm32"))]
 fn execute<F: Future<Output = ()> + Send + 'static>(f: F) {
     // this is stupid... use any executor of your choice instead
+
     std::thread::spawn(move || futures::executor::block_on(f));
 }
 
