@@ -1,6 +1,6 @@
 [build]
 filehash = false
-# dist = "./docs"
+dist = "./docs"
 # The public URL from which assets are to be served.
 # public_
 public_url = "https://seahawk1986.github.io/ecg_viewer/"
