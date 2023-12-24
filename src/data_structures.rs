@@ -271,7 +271,7 @@ impl DrawableChannel for TimeBasedChannel {
             .iter()
             .map(|(x, y)| {
                 [
-                    x.timestamp_millis() as f64 / 1E6_f64,
+                    x.timestamp_millis() as f64 / 1E3_f64,
                     *y * self.scaling_factor,
                 ]
             })
