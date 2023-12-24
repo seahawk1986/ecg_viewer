@@ -1,4 +1,4 @@
-use egui::{global_dark_light_mode_buttons, Context, Modifiers};
+use egui::{global_dark_light_mode_buttons, Context};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::data_structures::{DrawableChannel, SampleBasedChannel, TimeBasedChannel};

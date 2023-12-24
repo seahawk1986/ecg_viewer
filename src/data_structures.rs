@@ -66,7 +66,7 @@ impl ChannelPlotter {
 
     pub fn plot(&mut self, ui: &mut Ui) {
         let unit_label = "mV".to_owned();
-        let unit_labels: HashMap<String, String> = self
+        let _unit_labels: HashMap<String, String> = self
             .channels
             .iter_mut()
             .map(|c| {
@@ -374,7 +374,7 @@ impl SampleBasedChannel {
                 if let Ok(bday) = NaiveDate::parse_from_str(bday, "%Y-%m-%d") {
                     dbg!(&bday);
                     if let Some((_, avg_pulse)) = line_it.next().unwrap().split_once(',') {
-                        let avg_pulse = avg_pulse.parse::<f64>().unwrap_or(f64::NAN);
+                        let _avg_pulse = avg_pulse.parse::<f64>().unwrap_or(f64::NAN);
                         line_it.next(); // skip Unterteilung
                         line_it.next(); // skip Symptome
                         line_it.next(); // skip Software Version
