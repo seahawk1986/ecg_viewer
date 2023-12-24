@@ -1,4 +1,4 @@
-use egui::{global_dark_light_mode_buttons, Context};
+use egui::{global_dark_light_mode_buttons, Context, Modifiers};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::data_structures::{DrawableChannel, SampleBasedChannel, TimeBasedChannel};
@@ -110,6 +110,10 @@ impl eframe::App for MonitorApp {
                             }
                         }
                     });
+                }
+                ui.separator();
+                if ui.button("Clear loaded data").clicked() {
+                    self.plotter.channels.clear();
                 }
                 ui.separator();
 
