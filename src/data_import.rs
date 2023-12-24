@@ -14,7 +14,9 @@ pub fn parse_content(text: Vec<u8>) -> (Vec<SampleBasedChannel>, Vec<TimeBasedCh
         The Polar files are time-based, so we create a TimeBasedChannel for them
         */
 
-        match utf_string.split_once('\n').unwrap_or_default().0.trim() {
+        let first_line = utf_string.split_once('\n').unwrap_or_default().0.trim();
+
+        match first_line {
             "Phone timestamp;sensor timestamp [ns];timestamp [ms];ecg [uV]" => {
                 println!("Polar X10 ECG");
                 if let Ok(channels) =
@@ -48,7 +50,18 @@ pub fn parse_content(text: Vec<u8>) -> (Vec<SampleBasedChannel>, Vec<TimeBasedCh
                 }
             }
             _ => {
-                println!("unknown data type");
+                dbg!(&first_line);
+                if first_line.starts_with("Name,") || first_line.starts_with("\u{feff}Name,") {
+                    // Parse Samsung Galaxy Watch 6 file format
+                    if let Ok(channels) =
+                        SampleBasedChannel::parse_galaxy_data(utf_string, n_records)
+                    {
+                        println!("parsed Samsung Galaxy data");
+                        sample_based_data_channels.extend(channels);
+                    }
+                } else {
+                    println!("unknown data type");
+                }
                 // Filetype::Unknown
             }
         };

@@ -1,7 +1,7 @@
 use core::f64;
 use std::collections::HashMap;
 
-use chrono::{Duration, NaiveDateTime};
+use chrono::{Duration, NaiveDate, NaiveDateTime};
 use csv::StringRecord;
 use snafu::prelude::*;
 
@@ -356,6 +356,75 @@ impl SampleBasedChannel {
         let start = start.unwrap_or(0);
         let end = end.unwrap_or(self.data.len());
         &self.data[start..end]
+    }
+
+    pub fn parse_galaxy_data(
+        data: String,
+        n_records: usize,
+    ) -> Result<Vec<SampleBasedChannel>, ParserError> {
+        let mut line_it = data.lines();
+
+        // get the name
+        let name = line_it.next().unwrap();
+        if let Some((_, name)) = name.split_once(',') {
+            dbg!(&name);
+            // get the date of birth
+            let bday = line_it.next().unwrap();
+            if let Some((_, bday)) = bday.split_once(',') {
+                if let Ok(bday) = NaiveDate::parse_from_str(bday, "%Y-%m-%d") {
+                    dbg!(&bday);
+                    if let Some((_, avg_pulse)) = line_it.next().unwrap().split_once(',') {
+                        let avg_pulse = avg_pulse.parse::<f64>().unwrap_or(f64::NAN);
+                        line_it.next(); // skip Unterteilung
+                        line_it.next(); // skip Symptome
+                        line_it.next(); // skip Software Version
+                        line_it.next(); // skip Device
+                        let samples_per_second = line_it
+                            .next()
+                            .unwrap()
+                            .split_once(',')
+                            .unwrap()
+                            .1
+                            .split_once(' ')
+                            .unwrap()
+                            .0
+                            .parse::<f64>()
+                            .unwrap_or(500_000.0)
+                            / 1000.0;
+
+                        // skip empty lines
+                        line_it.next();
+                        line_it.next();
+                        // skip channel description
+                        line_it.next();
+                        line_it.next();
+
+                        let mut data = Vec::with_capacity(n_records);
+                        data = line_it
+                            .map(|line| line.replace(',', ".").parse::<f64>().unwrap_or(f64::NAN))
+                            .collect();
+
+                        let scaling_factor = 1.0;
+                        let color = None;
+                        let unit = "mV".to_owned();
+                        let plot_type = PlotType::Line;
+
+                        let name = format!("{} {}", name, bday);
+
+                        return Ok(vec![SampleBasedChannel::new(
+                            name,
+                            data,
+                            samples_per_second,
+                            scaling_factor,
+                            plot_type,
+                            color,
+                            unit,
+                        )]);
+                    }
+                }
+            }
+        };
+        Err(ParserError::ContentError)
     }
 }
 
